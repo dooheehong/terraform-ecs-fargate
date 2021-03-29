@@ -24,7 +24,7 @@ data "aws_iam_policy_document" "cicd_policy" {
     ]
 
     resources = [
-      data.aws_ecr_repository.ecr.arn,
+      aws_ecr_repository.devops-dev-backend.arn,
     ]
   }
 
@@ -58,6 +58,58 @@ data "aws_iam_policy_document" "cicd_policy" {
       aws_iam_role.ecsTaskExecutionRole.arn,
     ]
   }
+
+  # allows users to put s3 objects
+  statement {
+    sid = "s3"
+
+    actions = [
+      "s3:ListBucket",
+      "s3:PutObject",
+      "s3:PutObjectAcl",
+      "s3:DeleteObject",
+    ]
+
+    resources = [
+      aws_s3_bucket.devops-frontend.arn,
+      "${aws_s3_bucket.devops-frontend.arn}/*",
+      aws_s3_bucket.devops-overlay.arn,
+      "${aws_s3_bucket.devops-overlay.arn}/*",
+      aws_s3_bucket.devops-admin.arn,
+      "${aws_s3_bucket.devops-admin.arn}/*",
+      aws_s3_bucket.devops-assets.arn,
+      "${aws_s3_bucket.devops-assets.arn}/*",
+      aws_s3_bucket.devops-tts.arn,
+      "${aws_s3_bucket.devops-tts.arn}/*",
+    ]
+  }
+
+  # allows users to invalidate cloundfront cache
+  statement {
+    sid = "cloudfront"
+
+    actions = [
+      "cloudfront:CreateInvalidation",
+      "cloudfront:GetInvalidation",
+    ]
+
+    resources = [
+      "*",
+    ]
+  }
+
+  # allow users to pull secrets used for builds
+  statement {
+    sid = "secretmanager"
+
+    actions = [
+      "secretsmanager:GetSecretValue",
+    ]
+
+    resources = [
+      aws_secretsmanager_secret.sm_secret_cicd.id
+    ]
+  }
 }
 
 resource "aws_iam_user_policy" "cicd_user_policy" {
@@ -66,9 +118,9 @@ resource "aws_iam_user_policy" "cicd_user_policy" {
   policy = data.aws_iam_policy_document.cicd_policy.json
 }
 
-data "aws_ecr_repository" "ecr" {
-  name = var.app
-}
+// data "aws_ecr_repository" "devops-dev-backend" {
+//   name = var.app
+// }
 
 # The AWS keys for the CICD user to use in a build system
 output "cicd_keys" {
@@ -77,5 +129,5 @@ output "cicd_keys" {
 
 # The URL for the docker image repo in ECR
 output "docker_registry" {
-  value = data.aws_ecr_repository.ecr.repository_url
+  value = aws_ecr_repository.devops-dev-backend.repository_url
 }

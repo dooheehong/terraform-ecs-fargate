@@ -2,15 +2,15 @@ terraform {
   required_version = ">= 0.12"
 
   backend "s3" {
-    region  = "us-east-1"
-    profile = ""
-    bucket  = ""
+    region  = "us-west-2"
+    bucket  = "devops-west-2-tf"
     key     = "dev.terraform.tfstate"
   }
 }
 
 # The AWS Profile to use
 variable "aws_profile" {
+  default = "west-2"
 }
 
 provider "aws" {

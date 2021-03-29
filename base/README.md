@@ -67,3 +67,20 @@ $ terraform apply
 [state]: https://www.terraform.io/docs/state/remote.html
 [provider]: https://www.terraform.io/docs/providers/
 [ecr]: https://aws.amazon.com/ecr/
+
+
+
+``` 
+
+terraform apply
+
+
+app = "ejn-devops-app"
+aws_profile = "default"
+saml_role = "eks-service-role"
+tags = {"application": "ejn-devops-app", "environment": "dev", "team": "my-team", "customer": "my-customer", "contact-email": "me@example.com"}
+
+aws_s3_bucket
+
+
+```

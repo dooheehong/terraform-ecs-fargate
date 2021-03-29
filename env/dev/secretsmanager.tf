@@ -65,12 +65,13 @@ locals {
   saml_user_ids = flatten([
     data.aws_caller_identity.current.user_id,
     data.aws_caller_identity.current.account_id,
-    formatlist(
-      "%s:%s",
-      data.aws_iam_role.saml_role.unique_id,
-      var.secrets_saml_users,
-    ),
   ])
+
+    // formatlist(
+    //   "%s:%s",
+    //   data.aws_iam_role.saml_role.unique_id,
+    //   var.secrets_saml_users,
+    // ),
 
   # list of role users and saml users for policies
   role_and_saml_ids = flatten([
@@ -187,15 +188,22 @@ resource "aws_secretsmanager_secret" "sm_secret" {
   policy     = data.aws_iam_policy_document.sm_resource_policy_doc.json
 }
 
+resource "aws_secretsmanager_secret" "sm_secret_cicd" {
+  name = "${var.app}-${var.environment}-cicd"
+  kms_key_id = aws_kms_key.sm_kms_key.key_id
+  tags       = var.tags
+  policy     = data.aws_iam_policy_document.sm_resource_policy_doc.json
+}
+
 # create the placeholder secret json
 resource "aws_secretsmanager_secret_version" "initial" {
   secret_id     = aws_secretsmanager_secret.sm_secret.id
   secret_string = "{}"
 }
 
-# get the saml user info so we can get the unique_id
-data "aws_iam_role" "saml_role" {
-  name = var.saml_role
+resource "aws_secretsmanager_secret_version" "initial_cicd" {
+  secret_id = aws_secretsmanager_secret.sm_secret_cicd.id
+  secret_string = "{}"
 }
 
 # resource policy doc that limits access to secret
@@ -280,4 +288,5 @@ data "aws_iam_policy_document" "sm_resource_policy_doc" {
 # The users (email addresses) from the saml role to give access
 variable "secrets_saml_users" {
   type = list(string)
+  default = []
 }

@@ -17,9 +17,13 @@ variable "replicas" {
   default = "1"
 }
 
+variable "socket-replicas" {
+  default = "1"
+}
+
 # The name of the container to run
-variable "container_name" {
-  default = "app"
+variable "container_api_name" {
+  default = "devops_api"
 }
 
 # The minimum number of containers that should be running.
@@ -33,7 +37,7 @@ variable "ecs_autoscale_min_instances" {
 # The maximum number of containers that should be running.
 # used by both autoscale-perf.tf and autoscale.time.tf
 variable "ecs_autoscale_max_instances" {
-  default = "8"
+  default = "2"
 }
 
 resource "aws_ecs_cluster" "app" {
@@ -56,15 +60,24 @@ variable "default_backend_image" {
   default = "quay.io/turner/turner-defaultbackend:0.2.0"
 }
 
-resource "aws_appautoscaling_target" "app_scale_target" {
+resource "aws_appautoscaling_target" "devops-api_scale_target" {
   service_namespace  = "ecs"
-  resource_id        = "service/${aws_ecs_cluster.app.name}/${aws_ecs_service.app.name}"
+  resource_id        = "service/${aws_ecs_cluster.app.name}/${aws_ecs_service.devops-app.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   max_capacity       = var.ecs_autoscale_max_instances
   min_capacity       = var.ecs_autoscale_min_instances
 }
 
-resource "aws_ecs_task_definition" "app" {
+resource "aws_appautoscaling_target" "devops-ws-api_scale_target" {
+  service_namespace  = "ecs"
+  resource_id        = "service/${aws_ecs_cluster.app.name}/${aws_ecs_service.devops-ws-api.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  max_capacity       = var.ecs_autoscale_max_instances
+  min_capacity       = var.ecs_autoscale_min_instances
+}
+
+# WS Server Task Def
+resource "aws_ecs_task_definition" "devops-ws-api" {
   family                   = "${var.app}-${var.environment}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -78,20 +91,23 @@ resource "aws_ecs_task_definition" "app" {
   container_definitions = <<DEFINITION
 [
   {
-    "name": "${var.container_name}",
-    "image": "${var.default_backend_image}",
+    "name": "${var.container_api_name}",
+    "image": "${aws_ecr_repository.devops-dev-backend.repository_url}:develop",
     "essential": true,
     "portMappings": [
       {
         "protocol": "tcp",
-        "containerPort": ${var.container_port},
-        "hostPort": ${var.container_port}
+        "containerPort": ${var.container_socket_port}
       }
     ],
     "environment": [
       {
+        "name": "NODE_ENV",
+        "value": "production"
+      },
+      {
         "name": "PORT",
-        "value": "${var.container_port}"
+        "value": "${var.container_web_port}"
       },
       {
         "name": "HEALTHCHECK",
@@ -110,6 +126,79 @@ resource "aws_ecs_task_definition" "app" {
         "value": "${var.environment}"
       }
     ],
+    "secrets": [
+      { "name": "SECRET_JSON", "valueFrom": "${aws_secretsmanager_secret.sm_secret.id}" }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/fargate/service/${var.app}-${var.environment}",
+        "awslogs-region": "ap-northeast-1",
+        "awslogs-stream-prefix": "ecs"
+      }
+    }
+  }
+]
+DEFINITION
+}
+
+# API Server Task Def
+resource "aws_ecs_task_definition" "devops-api" {
+  family                   = "${var.app}-${var.environment}"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "1024"
+  memory                   = "2048"
+  execution_role_arn       = aws_iam_role.ecsTaskExecutionRole.arn
+
+  # defined in role.tf
+  task_role_arn = aws_iam_role.app_role.arn
+
+  container_definitions = <<DEFINITION
+[
+  {
+    "name": "${var.container_api_name}",
+    "image": "${aws_ecr_repository.devops-dev-backend.repository_url}:develop",
+    "essential": true,
+    "portMappings": [
+      {
+        "protocol": "tcp",
+        "containerPort": 9001
+      },
+      {
+        "protocol": "tcp",
+        "containerPort": ${var.container_web_port}
+      }
+    ],
+    "environment": [
+      {
+        "name": "NODE_ENV",
+        "value": "production"
+      },
+      {
+        "name": "PORT",
+        "value": "${var.container_web_port}"
+      },
+      {
+        "name": "HEALTHCHECK",
+        "value": "${var.health_check}"
+      },
+      {
+        "name": "ENABLE_LOGGING",
+        "value": "false"
+      },
+      {
+        "name": "PRODUCT",
+        "value": "${var.app}"
+      },
+      {
+        "name": "ENVIRONMENT",
+        "value": "${var.environment}"
+      }
+    ],
+    "secrets": [
+      { "name": "SECRET_JSON", "valueFrom": "${aws_secretsmanager_secret.sm_secret.id}" }
+    ],
     "logConfiguration": {
       "logDriver": "awslogs",
       "options": {
@@ -126,22 +215,56 @@ DEFINITION
   tags = var.tags
 }
 
-resource "aws_ecs_service" "app" {
-  name            = "${var.app}-${var.environment}"
+resource "aws_ecs_service" "devops-api" {
+  name            = "devops-api"
   cluster         = aws_ecs_cluster.app.id
   launch_type     = "FARGATE"
-  task_definition = aws_ecs_task_definition.app.arn
+  task_definition = aws_ecs_task_definition.devops-api.arn
   desired_count   = var.replicas
 
   network_configuration {
     security_groups = [aws_security_group.nsg_task.id]
-    subnets         = split(",", var.private_subnets)
+    subnets = [aws_subnet.devops-dev_subnet-1a.id, aws_subnet.devops-dev_subnet-1c.id]
+    assign_public_ip = true
   }
 
   load_balancer {
-    target_group_arn = aws_alb_target_group.main.id
-    container_name   = var.container_name
-    container_port   = var.container_port
+    target_group_arn = aws_alb_target_group.api.id
+    container_name   = var.container_api_name
+    container_port   = var.container_web_port
+  }
+
+  tags                    = var.tags
+  enable_ecs_managed_tags = true
+  propagate_tags          = "SERVICE"
+
+  # workaround for https://github.com/hashicorp/terraform/issues/12634
+  depends_on = [aws_alb_listener.http]
+
+  # [after initial apply] don't override changes made to task_definition
+  # from outside of terraform (i.e.; fargate cli)
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+}
+
+resource "aws_ecs_service" "devops-ws-api" {
+  name            = "devops-ws-api"
+  cluster         = aws_ecs_cluster.app.id
+  launch_type     = "FARGATE"
+  task_definition = aws_ecs_task_definition.devops-ws-api.arn
+  desired_count   = var.socket-replicas
+
+  network_configuration {
+    security_groups = [aws_security_group.nsg_task.id]
+    subnets = [aws_subnet.devops-dev_subnet-1a.id, aws_subnet.devops-dev_subnet-1c.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_alb_target_group.api-socket.id
+    container_name   = var.container_api_name
+    container_port = var.container_socket_port
   }
 
   tags                    = var.tags
@@ -164,6 +287,12 @@ resource "aws_iam_role" "ecsTaskExecutionRole" {
   assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
 }
 
+resource "aws_iam_role_policy" "ecsTaskExecutionRole_policy" {
+  name = "${var.app}-${var.environment}-ecs-policy"
+  role = aws_iam_role.ecsTaskExecutionRole.id
+  policy = data.aws_iam_policy_document.app_policy.json
+}
+
 data "aws_iam_policy_document" "assume_role_policy" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -182,7 +311,7 @@ resource "aws_iam_role_policy_attachment" "ecsTaskExecutionRole_policy" {
 
 variable "logs_retention_in_days" {
   type        = number
-  default     = 90
+  default     = 30
   description = "Specifies the number of days you want to retain log events"
 }
 

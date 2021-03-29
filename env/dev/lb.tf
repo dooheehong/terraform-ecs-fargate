@@ -6,7 +6,7 @@
 # Whether the application is available on the public internet,
 # also will determine which subnets will be used (public or private)
 variable "internal" {
-  default = true
+  default = false
 }
 
 # The amount time for Elastic Load Balancing to wait before changing the state of a deregistering target from draining to unused
@@ -16,6 +16,7 @@ variable "deregistration_delay" {
 
 # The path to the health check for the load balancer to know if the container(s) are ready
 variable "health_check" {
+  default = "/api/health"
 }
 
 # How often to check the liveliness of the container
@@ -30,7 +31,7 @@ variable "health_check_timeout" {
 
 # What HTTP response code to listen for
 variable "health_check_matcher" {
-  default = "200"
+  default = "200,404"
 }
 
 variable "lb_access_logs_expiration_days" {
@@ -42,10 +43,11 @@ resource "aws_alb" "main" {
 
   # launch lbs in public or private subnets based on "internal" variable
   internal = var.internal
-  subnets = split(
-    ",",
-    var.internal == true ? var.private_subnets : var.public_subnets,
-  )
+  // subnets = split(
+  //   ",",
+  //   var.internal == true ? var.private_subnets : var.public_subnets,
+  // )
+  subnets = [aws_subnet.devops-dev_subnet-1a.id, aws_subnet.devops-dev_subnet-1c.id]
   security_groups = [aws_security_group.nsg_lb.id]
   tags            = var.tags
 
@@ -56,11 +58,11 @@ resource "aws_alb" "main" {
   }
 }
 
-resource "aws_alb_target_group" "main" {
+resource "aws_alb_target_group" "api" {
   name                 = "${var.app}-${var.environment}"
   port                 = var.lb_port
   protocol             = var.lb_protocol
-  vpc_id               = var.vpc
+  vpc_id               = aws_vpc.devops-dev.id
   target_type          = "ip"
   deregistration_delay = var.deregistration_delay
 
@@ -69,7 +71,28 @@ resource "aws_alb_target_group" "main" {
     matcher             = var.health_check_matcher
     interval            = var.health_check_interval
     timeout             = var.health_check_timeout
-    healthy_threshold   = 5
+    healthy_threshold   = 3
+    unhealthy_threshold = 5
+  }
+
+  tags = var.tags
+}
+
+resource "aws_alb_target_group" "api-socket" {
+  name                 = "${var.app}-socket-${var.environment}"
+  port = 9001
+  protocol = "HTTP"
+
+  vpc_id               = aws_vpc.devops-dev.id
+  target_type          = "ip"
+  deregistration_delay = var.deregistration_delay
+
+  health_check {
+    path = "/health"
+    matcher = "200"
+    interval = 10
+    timeout = 5
+    healthy_threshold = 2
     unhealthy_threshold = 5
   }
 

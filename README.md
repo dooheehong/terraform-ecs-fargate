@@ -86,21 +86,21 @@ curl -s get-fargate-create.turnerlabs.io | sh
 create an input vars file (`terraform.tfvars`)
 ```hcl
 # app/env to scaffold
-app = "my-app"
+app = "ejn-devops-app"
 environment = "dev"
 
 internal = true
 container_port = "8080"
 replicas = "1"
 health_check = "/health"
-region = "us-east-1"
+region = "us-west-2"
 aws_profile = "default"
 saml_role = "admin"
 vpc = "vpc-123"
 private_subnets = "subnet-123,subnet-456"
 public_subnets = "subnet-789,subnet-012"
 tags = {
-  application   = "my-app"
+  application   = "ejn-devops-app"
   environment   = "dev"
   team          = "my-team"
   customer      = "my-customer"
@@ -147,3 +147,22 @@ ln -s ../../pre-commit.sh .git/hooks/pre-commit
 [base]: ./base/README.md
 [env-dev]: ./env/dev/README.md
 [ssc]: secrets-sidecar.tf
+
+
+``` 
+tfenv list-remote
+tfenv install 0.13.6
+tfenv use 0.13.6
+terraform --version
+vi .terraform-version
+
+
+cd base
+terraform init
+terraform apply
+
+cd ../env/dev
+terraform init
+terraform apply
+
+```

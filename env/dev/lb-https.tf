@@ -7,16 +7,18 @@ variable "https_port" {
 }
 
 # The ARN for the SSL certificate
-variable "certificate_arn" {}
+locals {
+  lb_certificate_arn = "arn:aws:acm:us-west-2-1:487604454824:certificate/4e8c1ffb-c2ac-44ed-a82a-f6b6130eb473"
+}
 
 resource "aws_alb_listener" "https" {
   load_balancer_arn = aws_alb.main.id
   port              = var.https_port
   protocol          = "HTTPS"
-  certificate_arn   = var.certificate_arn
+  certificate_arn   = local.lb_certificate_arn
 
   default_action {
-    target_group_arn = aws_alb_target_group.main.id
+    target_group_arn = aws_alb_target_group.api.id
     type             = "forward"
   }
 }
